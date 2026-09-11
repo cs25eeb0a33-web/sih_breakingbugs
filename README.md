@@ -15,23 +15,33 @@ when the network fails.
 
 | Arm | Throughput /min | Avg task time (s) | Full stops | Collisions | vs B0 |
 |---|---|---|---|---|---|
-| B0 stop-and-wait *(PS baseline)* | 1.77 | 42.2 | 13.5 | 0 | — |
-| B1 + congestion routing | 1.97 | 41.6 | 9.7 | 0 | +1.4% |
-| B2 + speed adaptation | 1.80 | 33.3 | 5.9 | 0 | **+21.2%** |
-| **B3 full system** | **2.10** | **32.4** | 5.2 | **0** | **+23.2%** |
-| B4 full @ 20% packet loss | 2.07 | 31.8 | 3.6 | 0 | +24.8% |
+| B0 stop-and-wait *(PS baseline)* | 1.57 | 39.9 | 11.5 | 0 | — |
+| B1 + congestion routing | 1.93 | 40.9 | 12.0 | 0 | -2.6% |
+| B2 + speed adaptation | 1.97 | 33.1 | 4.2 | 0 | **+17.0%** |
+| **B3 full system** | **1.67** | **31.1** | 3.8 | **0** | **+22.1%** |
+| B4 full @ 20% packet loss | 1.90 | 33.4 | 3.0 | 0 | +16.2% |
 
 ### Success criteria
 
 | Target | Result |
 |---|---|
 | Zero inter-robot collisions | ✅ **0** across all arms, all seeds |
-| ≥20% task-time reduction vs stop-and-wait | ✅ **+23.2%** |
+| ≥20% task-time reduction vs stop-and-wait | ✅ **+22.1%** |
 | Tests | ✅ **51/51 passing** |
 
 **What the ablation shows:** speed adaptation is the dominant contributor
-(+21.2% on its own). We can say precisely which mechanism earns the gain
+(+17.0% on its own). We can say precisely which mechanism earns the gain
 rather than claiming the system works as a black box.
+
+**Why B4 is now worse than B3, and why that is the honest number.** Task
+allocation runs over the radio: each robot broadcasts its `Bid`, resolves
+the auction from the bids it *actually received*, and the believed winner
+broadcasts a `Claim`. Dropping 20% of packets therefore costs real
+allocation time — median time from announcement to acceptance rises from
+**0.40 s to 1.10 s** — and re-auctions cost throughput. An earlier version
+of this table showed B4 *beating* B3, which was an artifact: allocation was
+resolved centrally in-process and never touched the network, so packet loss
+had nothing to degrade.
 
 ---
 
@@ -99,7 +109,7 @@ pip install -r requirements.txt
 python3 warehouse_map.py        # render the map
 python3 sim2d.py                # single run
 python3 train_policy.py         # train the policy (~4 s)
-python3 run_benchmark.py 10     # reproduce +23.2%
+python3 run_benchmark.py 10     # reproduce +22.1%
 python3 demo_scenarios.py       # all 7 demo scenarios
 python3 -m pytest tests/ -v     # 51 tests
 ```

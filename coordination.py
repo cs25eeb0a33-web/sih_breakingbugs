@@ -23,6 +23,13 @@ from warehouse_map import CELL_SIZE
 # bid weights (doc E.2)
 ALPHA, BETA, GAMMA, DELTA, EPSILON = 1.0, 0.5, 40.0, 15.0, 8.0
 
+# auction timing, seconds (doc 0.3). Protocol timings, not calibration
+# constants: they set how long a robot listens before it commits, and so
+# bound how badly a lost Bid can desync the fleet.
+T_BID = 0.3        # bid collection window
+T_CLAIM = 0.4      # wait for the believed winner's Claim before re-running
+T_REBID = 0.5      # retry cadence for a task nobody could take yet
+
 # conflict prediction (doc E.4)
 HORIZON = 10.0
 DT_SAMPLE = 0.5

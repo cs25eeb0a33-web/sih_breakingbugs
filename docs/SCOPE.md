@@ -10,7 +10,7 @@ benchmark harness in this repo, not from an estimate.
 
 | # | Component | Mechanism | File |
 |---|---|---|---|
-| 1 | **Decentralized task allocation** | Consensus sealed-bid auction. No auctioneer — every robot computes the same `argmin` over the same bid set. | `coordination.py` |
+| 1 | **Decentralized task allocation** | Consensus sealed-bid auction over the radio. No auctioneer — each robot broadcasts its `Bid`, runs `argmin` on the bids it *actually received*, and the believed winner broadcasts a `Claim`. Double claims under packet loss resolve to the lowest `robot_id`. | `coordination.py`, `sim2d.py` |
 | 2 | **Congestion-aware global planning** | Space-time A\* over a grid, peer reservations as time-varying cost, staleness-decayed. | `planner.py` |
 | 3 | **P2P intent sharing** | Robots broadcast *space-time reservations*, not just position. Conflicts are predicted before they occur. | `amr_msgs.py` |
 | 4 | **Speed adaptation** ← headline | Conflict resolved by computing a target arrival time and deriving the speed for it. Stopping is a computed last resort, not a reflex. | `coordination.py` |

@@ -17,12 +17,14 @@ import math
 import random
 from dataclasses import dataclass, field
 
-from amr_msgs import (BROADCAST, INF_COST, Header, Intent, MsgType, RobotMode,
-                      RobotState, Task, make_header, wrap)
+from amr_msgs import (BROADCAST, INF_COST, Bid, Claim, Header, Intent, MsgType,
+                      Release, ReleaseReason, RobotMode, RobotState, Task,
+                      make_header, wrap)
 from comms import CommsMediator
-from coordination import (V_MIN, DeadlockDetector, adapt_speed, bid_cost,
-                          conflict_risk, feasible, first_conflict,
-                          make_priority, resolve_auction, sample_trajectory)
+from coordination import (T_BID, T_CLAIM, T_REBID, V_MIN, DeadlockDetector,
+                          adapt_speed, bid_cost, conflict_risk, feasible,
+                          first_conflict, make_priority, resolve_auction,
+                          sample_trajectory)
 from planner import (ReservationTable, congestion_cost, path_length_m, plan,
                      path_to_reservations)
 from warehouse_map import CELL_SIZE, WarehouseMap
@@ -106,7 +108,14 @@ class Robot:
         self.replans = 0
         self.blocked_since = 0.0
         self.last_broadcast = -1.0
+        # -- auction state. All of it is built from RECEIVED packets only.
         self.pending_bids: dict[int, dict[int, tuple[float, bool]]] = {}
+        self.known_tasks: dict[int, Task] = {}
+        self.bid_close: dict[int, float] = {}    # task -> window shuts at
+        self.claimed: dict[int, int] = {}        # task -> believed owner
+        self.claim_due: dict[int, float] = {}    # task -> Claim deadline
+        self.rebid_at: dict[int, float] = {}     # task -> next retry
+        self.excluded: dict[int, set[int]] = {}  # task -> silent winners
 
     # -- geometry ----------------------------------------------------------
 
@@ -164,11 +173,19 @@ class Robot:
             elif t == MsgType.TASK.value:
                 d = dict(pkt.payload)
                 d["header"] = Header(**d["header"])
-                tasks.append(Task(**d))
+                task = Task(**d)
+                tasks.append(task)
+                if task.task_id not in self.known_tasks:
+                    self.known_tasks[task.task_id] = task
+                    self.submit_bid(task, now)
             elif t == MsgType.BID.value:
                 p = pkt.payload
                 self.pending_bids.setdefault(p["task_id"], {})[pkt.src] = (
                     p["cost"], p["feasible"])
+            elif t == MsgType.CLAIM.value:
+                self._on_claim(pkt.src, pkt.payload["task_id"], now)
+            elif t == MsgType.RELEASE.value:
+                self._on_release(pkt.src, pkt.payload["task_id"], now)
         return tasks
 
     def check_degraded(self, now: float) -> None:
@@ -185,7 +202,116 @@ class Robot:
         elif was:
             self.v_nom = 0.6
 
-    # -- task allocation ---------------------------------------------------
+    # -- task allocation: consensus sealed-bid auction (doc 0.3, E.1) ------
+    #
+    # There is no auctioneer. Each robot evaluates locally, BROADCASTS its
+    # bid, listens for T_BID, and runs resolve_auction() over the bids it
+    # actually received. On a lossy link two robots can therefore see
+    # different bid sets and both believe they won; the Claim exchange is
+    # what collapses that back to a single owner.
+
+    def submit_bid(self, task: Task, now: float) -> None:
+        """Evaluate locally and put the bid on the wire."""
+        cost, ok = self.evaluate_task(task, now)
+        self.pending_bids.setdefault(task.task_id, {})[self.id] = (cost, ok)
+        self.bid_close[task.task_id] = now + T_BID
+        self.rebid_at.pop(task.task_id, None)
+        bid = Bid(header=make_header(self.id, now), task_id=task.task_id,
+                  cost=cost, feasible=ok)
+        self.comms.send(wrap(bid, MsgType.BID, self.id, BROADCAST, now), now)
+        if ok and self.task is None:
+            self.mode = RobotMode.BIDDING
+
+    def step_auction(self, now: float) -> None:
+        """Close due bid windows, claim wins, and chase silent winners."""
+        for tid, close in list(self.bid_close.items()):
+            if now < close:
+                continue
+            self.bid_close.pop(tid, None)
+            # exclusion lasts exactly one resolution round (doc 0.3 step 5)
+            ruled_out = self.excluded.pop(tid, set())
+            if tid in self.claimed:
+                continue
+            bids = {r: v for r, v in self.pending_bids.get(tid, {}).items()
+                    if r not in ruled_out}
+            winner = resolve_auction(bids)
+            task = self.known_tasks.get(tid)
+            if winner == self.id and self.task is None and task is not None:
+                self.claimed[tid] = self.id
+                clm = Claim(header=make_header(self.id, now), task_id=tid,
+                            winning_cost=bids[self.id][0])
+                self.comms.send(
+                    wrap(clm, MsgType.CLAIM, self.id, BROADCAST, now), now)
+                self.accept_task(task, now)
+                continue
+            if winner and winner != self.id:
+                self.claim_due[tid] = now + T_CLAIM
+            else:
+                self.rebid_at[tid] = now + T_REBID
+            if self.task is None and self.mode == RobotMode.BIDDING:
+                self.mode = RobotMode.IDLE
+
+        # believed winner never announced -> rule it out and re-run
+        for tid, due in list(self.claim_due.items()):
+            if now < due:
+                continue
+            self.claim_due.pop(tid, None)
+            if tid in self.claimed:
+                continue
+            presumed = resolve_auction(self.pending_bids.get(tid, {}))
+            if presumed:
+                self.excluded.setdefault(tid, set()).add(presumed)
+            self.rebid_at[tid] = now
+
+        # retry tasks nobody could take yet (every robot busy or infeasible)
+        for tid, when in list(self.rebid_at.items()):
+            if now < when:
+                continue
+            if tid in self.claimed or tid not in self.known_tasks:
+                self.rebid_at.pop(tid, None)
+                continue
+            self.pending_bids.pop(tid, None)
+            self.submit_bid(self.known_tasks[tid], now)
+
+    def _on_claim(self, src: int, tid: int, now: float) -> None:
+        """
+        Record a peer's claim, and break a double-claim deterministically.
+
+        Packet loss makes two winners possible, because each robot resolved
+        over a different bid set. Lowest robot_id keeps the task and the
+        other releases -- both sides compute the same answer from the same
+        rule, so there is no negotiation round-trip.
+        """
+        prev = self.claimed.get(tid)
+        self.claimed[tid] = src if prev is None else min(prev, src)
+        self.bid_close.pop(tid, None)
+        self.claim_due.pop(tid, None)
+        self.rebid_at.pop(tid, None)
+        if (self.task is not None and self.task.task_id == tid
+                and self.claimed[tid] != self.id):
+            self.release_task(tid, now, ReleaseReason.PREEMPTED)
+
+    def _on_release(self, src: int, tid: int, now: float) -> None:
+        """A peer gave a task back -- reopen bidding on it."""
+        if self.claimed.get(tid) == src:
+            self.claimed.pop(tid, None)
+            if tid in self.known_tasks:
+                self.rebid_at[tid] = now
+
+    def release_task(self, tid: int, now: float,
+                     reason: ReleaseReason) -> None:
+        """Drop a task and tell the fleet, so it can be re-auctioned."""
+        rel = Release(header=make_header(self.id, now), task_id=tid,
+                      reason=reason.value)
+        self.comms.send(wrap(rel, MsgType.RELEASE, self.id, BROADCAST, now),
+                        now)
+        self.task = None
+        self.goal = None
+        self.path = []
+        self.path_idx = 0
+        self.payload = 0.0
+        self.phase = "none"
+        self.mode = RobotMode.IDLE
 
     def evaluate_task(self, task: Task, now: float) -> tuple[float, bool]:
         if self.task is not None or self.battery < 0.25:
@@ -499,18 +625,6 @@ class Simulation:
             self.comms._inbox[r.id].append(
                 wrap(t, MsgType.TASK, 0, r.id, self.t))
 
-    def run_auction(self, task: Task) -> None:
-        """Consensus sealed-bid. Every robot computes the same argmin."""
-        bids = {}
-        for r in self.robots:
-            bids[r.id] = r.evaluate_task(task, self.t)
-        winner = resolve_auction(bids)
-        if winner:
-            for r in self.robots:
-                if r.id == winner:
-                    r.accept_task(task, self.t)
-            self.open_tasks.pop(task.task_id, None)
-
     def check_collisions(self) -> None:
         for i, a in enumerate(self.robots):
             for b in self.robots[i + 1:]:
@@ -532,9 +646,15 @@ class Simulation:
                 r.broadcast(self.t)
                 r.last_broadcast = self.t
 
-        for tid, task in list(self.open_tasks.items()):
-            if self.t - self.task_announced_at[tid] > 0.3:
-                self.run_auction(task)
+        # Each robot resolves the auction from its OWN received bids. The
+        # server never picks a winner -- it only observes, from telemetry,
+        # which tasks have been taken, so it knows what is still open.
+        for r in self.robots:
+            r.step_auction(self.t)
+        held = {r.task.task_id for r in self.robots if r.task}
+        for tid in list(self.open_tasks):
+            if tid in held:
+                self.open_tasks.pop(tid)
 
         for r in self.robots:
             # Simulated LiDAR: geometric detection of anything within range.
