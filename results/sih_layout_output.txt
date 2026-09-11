@@ -1,0 +1,53 @@
+========================================================================
+SIH LAYOUT  --  geometry check against the ACTUAL robot footprint
+========================================================================
+{
+  "robot_overall_width_m": 0.98,
+  "robot_radius_m": 0.7,
+  "need_one_robot_m": 1.18,
+  "need_two_passing_m": 2.36,
+  "vertical_aisle_x0_m": 2.0,
+  "horizontal_aisle_y0_m": 2.75,
+  "vert_fits_one": true,
+  "vert_fits_two": false,
+  "horiz_fits_one": true,
+  "horiz_fits_two": true
+}
+
+  rack labels inside their racks: {'Rack1': True, 'Rack2': True, 'Rack3': True, 'Rack4': True}
+
+  VERDICT
+    one robot in the central aisle : OK
+    two robots passing             : FAIL  <-- design issue
+
+========================================================================
+FLEET RUN  --  3 robots, 5 seeds, 180 s
+========================================================================
+
+config              tasks   task_s   stops  stopped_s    dlk  coll
+------------------------------------------------------------------
+as drawn              4.0     23.2     0.0      348.6    0.0     0
++ passing bays        4.0     23.2     0.0      348.1    6.8     0
+
+  passing bays change throughput by +0%
+
+========================================================================
+BASELINE COMPARISON on this layout (3 robots, with bays)
+========================================================================
+
+arm                 tasks   task_s   stops  coll
+------------------------------------------------
+stop-and-wait         4.0     29.0     0.8     0
+full system           4.0     23.2     0.0     0
+
+  task time +20.0% vs stop-and-wait on the SIH layout
+
+========================================================================
+COMMS BLACKOUT on the SIH layout
+========================================================================
+
+  t=50s  degraded=0/3  collisions=0
+  >>> ALL LINKS CUT <<<
+  t=120s  degraded=3/3  collisions=0
+
+wrote results/sih_layout_results.json
