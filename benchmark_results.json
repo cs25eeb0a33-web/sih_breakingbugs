@@ -1,0 +1,67 @@
+{
+  "B0_stop_and_wait": {
+    "arm": "B0_stop_and_wait",
+    "throughput_per_min": 1.77,
+    "throughput_std": 0.94,
+    "avg_task_time": 42.23,
+    "task_time_std": 8.96,
+    "tasks_completed": 5.3,
+    "collisions": 0,
+    "deadlocks": 5.8,
+    "full_stops": 13.5,
+    "time_stopped": 355.67,
+    "seeds": 10
+  },
+  "B1_congestion": {
+    "arm": "B1_congestion",
+    "throughput_per_min": 1.97,
+    "throughput_std": 1.05,
+    "avg_task_time": 41.62,
+    "task_time_std": 7.17,
+    "tasks_completed": 5.9,
+    "collisions": 0,
+    "deadlocks": 5.8,
+    "full_stops": 9.7,
+    "time_stopped": 318.93,
+    "seeds": 10
+  },
+  "B2_speed_adapt": {
+    "arm": "B2_speed_adapt",
+    "throughput_per_min": 1.8,
+    "throughput_std": 0.84,
+    "avg_task_time": 33.29,
+    "task_time_std": 4.88,
+    "tasks_completed": 5.4,
+    "collisions": 0,
+    "deadlocks": 7,
+    "full_stops": 5.9,
+    "time_stopped": 380.29,
+    "seeds": 10
+  },
+  "B3_full": {
+    "arm": "B3_full",
+    "throughput_per_min": 2.1,
+    "throughput_std": 0.93,
+    "avg_task_time": 32.44,
+    "task_time_std": 4.26,
+    "tasks_completed": 6.3,
+    "collisions": 0,
+    "deadlocks": 4.8,
+    "full_stops": 5.2,
+    "time_stopped": 351.11,
+    "seeds": 10
+  },
+  "B4_full_20pct_loss": {
+    "arm": "B4_full_20pct_loss",
+    "throughput_per_min": 2.07,
+    "throughput_std": 0.87,
+    "avg_task_time": 31.77,
+    "task_time_std": 3.58,
+    "tasks_completed": 6.2,
+    "collisions": 0,
+    "deadlocks": 4.5,
+    "full_stops": 3.6,
+    "time_stopped": 359.82,
+    "seeds": 10
+  }
+}

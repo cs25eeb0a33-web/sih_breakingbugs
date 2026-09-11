@@ -1,0 +1,25 @@
+Running 5 arms x 10 seeds, 4 robots
+
+  B0_stop_and_wait ...
+  B1_congestion ...
+  B2_speed_adapt ...
+  B3_full ...
+  B4_full_20pct_loss ...
+
+======================================================================================
+arm                     thru/min   task_s   stops  stopped_s  coll   dlk       vs B0
+--------------------------------------------------------------------------------------
+B0_stop_and_wait            1.77     42.2      14      355.7     0   5.8    baseline
+B1_congestion               1.97     41.6      10      318.9     0   5.8       +1.4%
+B2_speed_adapt              1.80     33.3       6      380.3     0   7.0      +21.2%
+B3_full                     2.10     32.4       5      351.1     0   4.8      +23.2%
+B4_full_20pct_loss          2.07     31.8       4      359.8     0   4.5      +24.8%
+======================================================================================
+
+HEADLINE: task-completion time +23.2% vs stop-and-wait
+          collisions across ALL runs: 0
+          target is >=20% reduction + zero collisions
+
+PASS
+
+wrote benchmark_results.json
