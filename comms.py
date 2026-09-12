@@ -83,7 +83,7 @@ class CommsMediator:
         for k in self.link_matrix:
             self.link_matrix[k] = True
 
-    def cut_everything(self) -> None:
+    def caut_everything(self) -> None:
         for k in self.link_matrix:
             self.link_matrix[k] = False
 
